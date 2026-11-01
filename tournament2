@@ -1,0 +1,237 @@
+#include <pthread.h>
+#include <semaphore.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#define MAXS 100
+
+enum
+{
+    ROCK,
+    SCISSORS,
+    PAPER,
+    NGEST
+};
+const char* gname[] = {"Rock", "Scissors", "Paper"};
+
+enum
+{
+    RANDOM,
+    CYCLE,
+    FIXED
+};
+
+typedef struct
+{
+    int id;
+    char name[32];
+    int score;
+    int strategy, delay, moves, gesture;
+    unsigned rnd;
+    sem_t start;
+} Student;
+
+typedef struct
+{
+    int a, b;
+} Pair;
+
+pthread_mutex_t print_lock = PTHREAD_MUTEX_INITIALIZER;
+sem_t ready;
+
+int who_wins(int a, int b)
+{
+    if(a == b)
+        return 0;
+    if((a == ROCK) && (b == SCISSORS))
+        return 1;
+    if((a == SCISSORS) && (b == PAPER))
+        return 1;
+    if((a == PAPER) && (b == ROCK))
+        return 1;
+    return -1;
+}
+
+void* student_loop(void* arg)
+{
+    Student* s = (Student*)arg;
+
+    while(1)
+    {
+        sem_wait(&s->start);
+        if(s->id < 0)
+            break;
+
+        if(s->delay > 0)
+            sleep(s->delay);
+
+        if(s->strategy == RANDOM)
+            s->gesture = rand_r(&s->rnd) % NGEST;
+        else if(s->strategy == CYCLE)
+            s->gesture = s->moves % NGEST;
+        else
+            s->gesture = (s->id - 1) % NGEST;
+        s->moves++;
+
+        pthread_mutex_lock(&print_lock);
+        printf("  %s ready\n", s->name);
+        pthread_mutex_unlock(&print_lock);
+
+        sem_post(&ready);
+    }
+    return NULL;
+}
+
+void print_table(Student* st, int n)
+{
+    printf("\n  scores:\n");
+    for(int i = 0; i < n; i++)
+        printf("    %2d) %-10s %3d\n", st[i].id, st[i].name, st[i].score);
+}
+
+void print_final(Student* st, int n, int tie_rule)
+{
+    int idx[MAXS];
+    for(int i = 0; i < n; i++)
+        idx[i] = i;
+
+    for(int i = 0; i < n; i++)
+        for(int j = i + 1; j < n; j++)
+            if((st[idx[i]].score < st[idx[j]].score))
+            {
+                int t = idx[i];
+                idx[i] = idx[j];
+                idx[j] = t;
+            }
+
+    printf("\nRESULTS\n");
+    for(int i = 0; i < n; i++)
+    {
+        int place = i + 1;
+        if(tie_rule == 0)
+        {
+            int j = i;
+            while(((j > 0) && (st[idx[j - 1]].score == st[idx[i]].score)))
+                j--;
+            place = j + 1;
+        }
+        printf("  %2d place  %-10s  %d points\n", place, st[idx[i]].name,
+               st[idx[i]].score);
+    }
+}
+
+int main(int argc, char** argv)
+{
+    int n = 4, strategy = RANDOM, par = 1, delay = 0, tie_rule = 0;
+    unsigned seed = 42;
+
+    if(argc == 7)
+    {
+        n = atoi(argv[1]);
+        seed = (unsigned)atoi(argv[2]);
+        strategy = atoi(argv[3]);
+        par = atoi(argv[4]);
+        delay = atoi(argv[5]);
+        tie_rule = atoi(argv[6]);
+    }
+
+    Student stud[MAXS];
+    pthread_t tid[MAXS];
+    int played[MAXS][MAXS] = {{0}};
+
+    sem_init(&ready, 0, 0);
+
+    for(int i = 0; i < n; i++)
+    {
+        stud[i].id = i + 1;
+        sprintf(stud[i].name, "Student%d", i + 1);
+        stud[i].score = 0;
+        stud[i].strategy = strategy;
+        stud[i].delay = delay;
+        stud[i].moves = 0;
+        stud[i].rnd = seed + i;
+        sem_init(&stud[i].start, 0, 0);
+        pthread_create(&tid[i], NULL, student_loop, &stud[i]);
+    }
+
+    int total = n * (n - 1) / 2;
+    int done = 0;
+
+    printf("Tournament: rock, scissors, paper\n");
+    printf("Students: %d, seed=%u, matches at once=%d, delay=%d sec\n", n, seed,
+           par, delay);
+    print_table(stud, n);
+
+    while((done < total))
+    {
+        Pair m[MAXS];
+        int busy[MAXS] = {0};
+        int cnt = 0;
+
+        for(int i = 0; ((i < n) && (cnt < par)); i++)
+            for(int j = i + 1; ((j < n) && (cnt < par)); j++)
+                if(((!played[i][j]) && (!busy[i]) && (!busy[j])))
+                {
+                    m[cnt].a = i;
+                    m[cnt].b = j;
+                    cnt++;
+                    busy[i] = busy[j] = 1;
+                    played[i][j] = 1;
+                    printf("\n  pair: %s - %s\n", stud[i].name, stud[j].name);
+                }
+
+        for(int i = 0; i < cnt; i++)
+        {
+            sem_post(&stud[m[i].a].start);
+            sem_post(&stud[m[i].b].start);
+        }
+
+        for(int i = 0; i < cnt * 2; i++)
+            sem_wait(&ready);
+
+        for(int i = 0; i < cnt; i++)
+        {
+            Student* A = &stud[m[i].a];
+            Student* B = &stud[m[i].b];
+            done++;
+
+            printf("\n  match %d of %d\n", done, total);
+            printf("  %s: %s, %s: %s\n", A->name, gname[A->gesture], B->name,
+                   gname[B->gesture]);
+
+            int w = who_wins(A->gesture, B->gesture);
+            if(w == 1)
+            {
+                A->score += 2;
+                printf("  %s wins (+2)\n", A->name);
+            }
+            else if(w == -1)
+            {
+                B->score += 2;
+                printf("  %s wins (+2)\n", B->name);
+            }
+            else
+            {
+                A->score++;
+                B->score++;
+                printf("  draw (+1 each)\n");
+            }
+            print_table(stud, n);
+        }
+    }
+
+    print_final(stud, n, tie_rule);
+    printf("\nMatches played: %d of %d\n", done, total);
+
+    for(int i = 0; i < n; i++)
+    {
+        stud[i].id = -1;
+        sem_post(&stud[i].start);
+    }
+    for(int i = 0; i < n; i++)
+        pthread_join(tid[i], NULL);
+
+    sem_destroy(&ready);
+    return 0;
+}
