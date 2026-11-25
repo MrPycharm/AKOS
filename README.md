@@ -13,7 +13,7 @@
 ### Сервер
 
 ```
-./rsp server <port> <n> <seed> <strategy> <par> <delay> <tie_rule>
+./tournament4 server <port> <n> <seed> <strategy> <par> <delay> <tie_rule>
 ```
 
 | Параметр | Значение                                                |
@@ -29,13 +29,13 @@
 ### Игрок
 
 ```
-./rsp player <ip> <port> <id>
+./tournament4 player <ip> <port> <id>
 ```
 
 ### Наблюдатель
 
 ```
-./rsp observer <ip> <port>
+./tournament4 observer <ip> <port>
 ```
 
 ---
@@ -54,28 +54,28 @@
 ## Сборка
 
 ```
-gcc -Wall -Wextra -O2 rsp_tcp.c -o rsp
+gcc -Wall -Wextra -O2 tournament4.c -o tournament4
 ```
 ---
 ## Пример запуска (турнир на 3 студентов)
 В отдельных терминалах:
 
 ```
-./rsp server 8080 3 42 0 1 0 0  
+./tournament4 server 8080 3 42 0 1 0 0  
 ```
 
 ```
-./rsp player 127.0.0.1 8080 0  
+./tournament4 player 127.0.0.1 8080 0  
 ```
 
 ```
-./rsp player 127.0.0.1 8080 1  
+./tournament4 player 127.0.0.1 8080 1  
 ```
 
 ```
-./rsp player 127.0.0.1 8080 2  
+./tournament4 player 127.0.0.1 8080 2  
 ```
 
 ```
-./rsp observer 127.0.0.1 8080
+./tournament4 observer 127.0.0.1 8080
 ```
